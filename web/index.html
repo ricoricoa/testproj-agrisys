@@ -116,8 +116,10 @@
       document.getElementById('openCamBtn').addEventListener('click', async () => {
         if (!videoEl) {
           videoEl = document.createElement('video');
-          videoEl.autoplay = true; videoEl.playsInline = true; videoEl.style.display = 'none';
-          document.body.appendChild(videoEl);
+          videoEl.autoplay = true; videoEl.playsInline = true; videoEl.muted = true;
+          // show video preview for debugging on phones
+          videoEl.style.display = 'block'; videoEl.style.width = '200px'; videoEl.style.border = '2px solid #444';
+          document.querySelector('.stream').insertBefore(videoEl, document.querySelector('.stream').firstChild);
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
             videoEl.srcObject = stream; await videoEl.play();
@@ -131,7 +133,8 @@
             initLocalMl5();
             document.getElementById('openCamBtn').disabled = true; document.getElementById('openCamBtn').textContent = 'Camera Open';
           } catch (e) {
-            document.getElementById('localResult').textContent = 'Camera denied';
+            console.error('getUserMedia error', e);
+            document.getElementById('localResult').textContent = 'Camera denied or not available (HTTPS required)';
           }
         }
       });
