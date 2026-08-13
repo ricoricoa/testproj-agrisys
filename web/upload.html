@@ -38,7 +38,9 @@
     </div>
 
     <script src="/web/config.js"></script>
+    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
     <script>
+      // Client-side ml5 transfer-learning classifier (MobileNet feature extractor)
       const API_BASE = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : '';
       const uploadFile = document.getElementById('uploadFile');
       const uploadCanvas = document.getElementById('uploadCanvas');
@@ -46,15 +48,31 @@
       const uploadBtn = document.getElementById('uploadBtn');
       const uploadResult = document.getElementById('uploadResult');
 
-      let currentImage = null;
+      // New UI controls for client-side classifier
+      const controlsRow = document.createElement('div');
+      controlsRow.style.display = 'flex';
+      controlsRow.style.gap = '8px';
+      controlsRow.style.alignItems = 'center';
+      controlsRow.style.marginTop = '10px';
 
+      const openCamBtn = document.createElement('button'); openCamBtn.textContent = 'Open Camera';
+      const addTemplateBtn = document.createElement('button'); addTemplateBtn.textContent = 'Add Template (label)';
+      const trainBtn = document.createElement('button'); trainBtn.textContent = 'Train';
+      const classifyBtn = document.createElement('button'); classifyBtn.textContent = 'Classify';
+      const labelInput = document.createElement('input'); labelInput.type = 'text'; labelInput.placeholder = 'e.g. damaged rice field'; labelInput.style.width = '160px';
+      controlsRow.appendChild(openCamBtn);
+      controlsRow.appendChild(labelInput);
+      controlsRow.appendChild(addTemplateBtn);
+      controlsRow.appendChild(trainBtn);
+      controlsRow.appendChild(classifyBtn);
+      document.querySelector('.panel > div').appendChild(controlsRow);
+
+      let currentImage = null;
       function clearCanvas() {
         uploadCtx.fillStyle = '#000';
         uploadCtx.fillRect(0, 0, uploadCanvas.width, uploadCanvas.height);
       }
-
       function drawImageToCanvas(img) {
-        // fit image into canvas while preserving aspect
         const cw = uploadCanvas.width, ch = uploadCanvas.height;
         const iw = img.width, ih = img.height;
         const scale = Math.min(cw / iw, ch / ih);
@@ -64,6 +82,52 @@
         uploadCtx.drawImage(img, 0, 0, iw, ih, ox, oy, nw, nh);
       }
 
+      // ml5 transfer learning setup
+      let videoEl = null;
+      let featureExtractor = null;
+      let classifier = null;
+      let modelReady = false;
+
+      function initMl5() {
+        if (featureExtractor) return;
+        uploadResult.textContent = 'Loading MobileNet (ml5)...';
+        featureExtractor = ml5.featureExtractor('MobileNet', { numLabels: 10 }, () => {
+          classifier = featureExtractor.classification(uploadCanvas, () => {
+            modelReady = true; uploadResult.textContent = 'Model ready (local)';
+          });
+        });
+      }
+
+      // Camera handling
+      openCamBtn.addEventListener('click', async () => {
+        if (!videoEl) {
+          videoEl = document.createElement('video');
+          videoEl.autoplay = true; videoEl.playsInline = true; videoEl.style.display = 'none';
+          document.body.appendChild(videoEl);
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            videoEl.srcObject = stream;
+            await videoEl.play();
+            // draw current frame periodically
+            const drawLoop = () => {
+              if (videoEl && !videoEl.paused && !videoEl.ended) {
+                // draw into canvas for preview
+                uploadCtx.drawImage(videoEl, 0, 0, uploadCanvas.width, uploadCanvas.height);
+              }
+              requestAnimationFrame(drawLoop);
+            };
+            drawLoop();
+            initMl5();
+            uploadResult.textContent = 'Camera opened';
+            openCamBtn.textContent = 'Camera Open';
+            openCamBtn.disabled = true;
+          } catch (e) {
+            uploadResult.textContent = 'Camera denied';
+          }
+        }
+      });
+
+      // File upload preview
       uploadFile.addEventListener('change', () => {
         const f = uploadFile.files && uploadFile.files[0];
         if (!f) { clearCanvas(); return; }
@@ -73,23 +137,72 @@
           currentImage = img;
           drawImageToCanvas(img);
           uploadResult.textContent = '';
+          initMl5();
         };
         img.src = url;
       });
 
+      // Add template: use canvas content as training example
+      addTemplateBtn.addEventListener('click', () => {
+        const lbl = (labelInput.value || '').trim();
+        if (!lbl) { uploadResult.textContent = 'Enter a label first'; return; }
+        if (!featureExtractor) initMl5();
+        if (!modelReady && !classifier) {
+          uploadResult.textContent = 'Initializing model...'; return;
+        }
+        classifier.addImage(uploadCanvas, lbl, () => {
+          uploadResult.textContent = 'Added example for: ' + lbl;
+        });
+      });
+
+      // Train
+      trainBtn.addEventListener('click', () => {
+        if (!classifier) { uploadResult.textContent = 'Model not ready'; return; }
+        uploadResult.textContent = 'Training...';
+        classifier.train((lossValue) => {
+          if (lossValue === null) {
+            uploadResult.textContent = 'Training complete';
+          } else {
+            uploadResult.textContent = 'Training loss: ' + lossValue.toFixed(4);
+          }
+        });
+      });
+
+      // Classify current canvas
+      classifyBtn.addEventListener('click', () => {
+        if (!classifier) { uploadResult.textContent = 'Model not ready'; return; }
+        uploadResult.textContent = 'Classifying...';
+        classifier.classify(uploadCanvas, (err, results) => {
+          if (err) { uploadResult.textContent = 'Error'; return; }
+          if (results && results[0]) {
+            const r = results[0];
+            uploadResult.textContent = `${r.label} (${Math.round(r.confidence*100)}%)`;
+            // Draw overlay
+            uploadCtx.fillStyle = 'rgba(0,0,0,0.6)';
+            uploadCtx.fillRect(0, uploadCanvas.height - 36, uploadCanvas.width, 36);
+            uploadCtx.fillStyle = '#9ef';
+            uploadCtx.font = '18px Arial';
+            uploadCtx.textBaseline = 'middle';
+            uploadCtx.fillText(`${r.label} (${Math.round(r.confidence*100)}%)`, 12, uploadCanvas.height - 18);
+          } else {
+            uploadResult.textContent = 'No result';
+          }
+        });
+      });
+
+      // Keep the existing server upload button as fallback if API_BASE is configured
       uploadBtn.addEventListener('click', async () => {
         if (!uploadFile.files || uploadFile.files.length === 0) { uploadResult.textContent = 'Select a file'; return; }
+        if (!API_BASE) { uploadResult.textContent = 'No backend configured'; return; }
         uploadBtn.disabled = true; uploadResult.textContent = 'Uploading...';
         const fd = new FormData(); fd.append('image', uploadFile.files[0]);
         try {
-            const r = await fetch(API_BASE + '/upload_image', { method: 'POST', body: fd });
+          const r = await fetch(API_BASE + '/upload_image', { method: 'POST', body: fd });
           const j = await r.json();
           if (j.label) {
             uploadResult.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
-            // overlay label on canvas
             if (currentImage) {
               drawImageToCanvas(currentImage);
-              // draw translucent bar
               uploadCtx.fillStyle = 'rgba(0,0,0,0.6)';
               uploadCtx.fillRect(0, uploadCanvas.height - 36, uploadCanvas.width, 36);
               uploadCtx.fillStyle = '#9ef';
