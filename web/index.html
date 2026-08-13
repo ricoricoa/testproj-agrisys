@@ -40,14 +40,16 @@
       </div>
     </div>
     
+    <script src="/web/config.js"></script>
     <script>
+      const API_BASE = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : '';
       const classifyBtn = document.getElementById('classifyBtn');
       const resSpan = document.getElementById('sceneResult');
       classifyBtn.addEventListener('click', async () => {
         classifyBtn.disabled = true;
         resSpan.textContent = 'Classifying...';
         try {
-          const r = await fetch('/classify_scene', { method: 'POST' });
+          const r = await fetch(API_BASE + '/classify_scene', { method: 'POST' });
           const j = await r.json();
           resSpan.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
         } catch (e) {
@@ -63,7 +65,7 @@
         if (!label) { addResult.textContent = 'Enter label'; return; }
         addBtn.disabled = true; addResult.textContent = 'Saving...';
         try {
-          const r = await fetch('/add_template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }) });
+          const r = await fetch(API_BASE + '/add_template', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }) });
           const j = await r.json();
           addResult.textContent = j.status || 'saved';
         } catch (e) {
@@ -72,59 +74,11 @@
         addBtn.disabled = false;
       });
 
-      const uploadBtn = document.getElementById('uploadBtn');
-      const uploadResult = document.getElementById('uploadResult');
-      const uploadFile = document.getElementById('uploadFile');
-      const uploadPreview = document.getElementById('uploadPreview');
-
-      // Show preview when a file is chosen
-      uploadFile.addEventListener('change', () => {
-        const f = uploadFile.files && uploadFile.files[0];
-        if (!f) { uploadPreview.src = ''; return; }
-        const url = URL.createObjectURL(f);
-        uploadPreview.src = url;
-        uploadResult.textContent = '';
-      });
-
-      uploadBtn.addEventListener('click', async () => {
-        const fileEl = uploadFile;
-        if (!fileEl.files || fileEl.files.length === 0) { uploadResult.textContent = 'Select a file'; return; }
-        uploadBtn.disabled = true; uploadResult.textContent = 'Uploading...';
-        const fd = new FormData();
-        fd.append('image', fileEl.files[0]);
-        try {
-          const r = await fetch('/upload_image', { method: 'POST', body: fd });
-          const j = await r.json();
-          if (j.label) {
-            uploadResult.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
-            uploadResult.className = 'badge';
-          } else {
-            uploadResult.textContent = JSON.stringify(j);
-          }
-        } catch (e) {
-          uploadResult.textContent = 'Error';
-        }
-        uploadBtn.disabled = false;
-      });
-
-      const saveTemplateBtn = document.getElementById('saveTemplateBtn');
-      saveTemplateBtn.addEventListener('click', async () => {
-        const fileEl = uploadFile;
-        const label = document.getElementById('tmplLabel').value.trim();
-        if (!fileEl.files || fileEl.files.length === 0) { uploadResult.textContent = 'Select a file'; return; }
-        saveTemplateBtn.disabled = true; uploadResult.textContent = 'Saving template...';
-        const fd = new FormData();
-        fd.append('image', fileEl.files[0]);
-        fd.append('label', label);
-        try {
-          const r = await fetch('/add_template_upload', { method: 'POST', body: fd });
-          const j = await r.json();
-          uploadResult.textContent = j.status || 'saved';
-        } catch (e) {
-          uploadResult.textContent = 'Error';
-        }
-        saveTemplateBtn.disabled = false;
-      });
+      // Set video feed src to backend if API_BASE provided
+      const streamImg = document.getElementById('stream');
+      if (API_BASE) {
+        streamImg.src = API_BASE + '/video_feed';
+      }
     </script>
     <p>Press Ctrl+C in the server terminal to stop.</p>
   </body>

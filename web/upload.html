@@ -37,7 +37,9 @@
       </div>
     </div>
 
+    <script src="/web/config.js"></script>
     <script>
+      const API_BASE = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : '';
       const uploadFile = document.getElementById('uploadFile');
       const uploadCanvas = document.getElementById('uploadCanvas');
       const uploadCtx = uploadCanvas.getContext('2d');
@@ -80,7 +82,7 @@
         uploadBtn.disabled = true; uploadResult.textContent = 'Uploading...';
         const fd = new FormData(); fd.append('image', uploadFile.files[0]);
         try {
-          const r = await fetch('/upload_image', { method: 'POST', body: fd });
+            const r = await fetch(API_BASE + '/upload_image', { method: 'POST', body: fd });
           const j = await r.json();
           if (j.label) {
             uploadResult.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
