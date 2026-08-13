@@ -23,26 +23,45 @@
     <h1>Realtime Object Identifier - Stream</h1>
     <div class="container">
       <div class="stream">
-        <img id="stream" src="/video_feed" alt="video stream" />
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div style="flex:1">
+            <canvas id="streamCanvas" width="640" height="360" style="width:100%;border:4px solid #444;background:#000"></canvas>
+          </div>
+          <div style="width:220px">
+            <div class="preview-box"><img id="previewThumb" src="/video_feed" alt="video stream" /></div>
+            <div style="margin-top:8px;color:#999;font-size:12px">Server fallback preview (if backend available)</div>
+          </div>
+        </div>
       </div>
 
       <div class="controls">
         <div style="display:flex;align-items:center;gap:8px;">
-          <button id="classifyBtn">Classify Scene</button>
+          <button id="classifyBtn">Classify Scene (server)</button>
           <span id="sceneResult" class="result-text"></span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <input id="tmplLabel" placeholder="Template label (e.g. flood)" style="padding:6px;" />
-          <button id="addTmplBtn">Add Template</button>
+          <button id="addTmplBtn">Add Template (server)</button>
           <span id="addResult" class="muted"></span>
           <a href="/upload" class="link">Go to Upload Page</a>
+        </div>
+      </div>
+      <div class="controls" style="margin-top:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button id="openCamBtn">Open Camera</button>
+          <button id="addLocalBtn">Add Template (local)</button>
+          <button id="trainLocalBtn">Train (local)</button>
+          <button id="classifyLocalBtn">Classify (local)</button>
+          <span id="localResult" class="result-text"></span>
         </div>
       </div>
     </div>
     
     <script src="/web/config.js"></script>
+    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
     <script>
       const API_BASE = (typeof API_BASE_URL !== 'undefined') ? API_BASE_URL : '';
+      // Server buttons
       const classifyBtn = document.getElementById('classifyBtn');
       const resSpan = document.getElementById('sceneResult');
       classifyBtn.addEventListener('click', async () => {
@@ -74,11 +93,77 @@
         addBtn.disabled = false;
       });
 
-      // Set video feed src to backend if API_BASE provided
-      const streamImg = document.getElementById('stream');
-      if (API_BASE) {
-        streamImg.src = API_BASE + '/video_feed';
+      // Local ml5 client-side setup
+      const streamCanvas = document.getElementById('streamCanvas');
+      const streamCtx = streamCanvas.getContext('2d');
+      const previewThumb = document.getElementById('previewThumb');
+      if (API_BASE) previewThumb.src = API_BASE + '/video_feed';
+
+      let videoEl = null;
+      let featureExtractor = null;
+      let classifier = null;
+      let modelReady = false;
+
+      function initLocalMl5() {
+        if (featureExtractor) return;
+        featureExtractor = ml5.featureExtractor('MobileNet', { numLabels: 10 }, () => {
+          classifier = featureExtractor.classification(streamCanvas, () => {
+            modelReady = true; document.getElementById('localResult').textContent = 'Model ready (local)';
+          });
+        });
       }
+
+      document.getElementById('openCamBtn').addEventListener('click', async () => {
+        if (!videoEl) {
+          videoEl = document.createElement('video');
+          videoEl.autoplay = true; videoEl.playsInline = true; videoEl.style.display = 'none';
+          document.body.appendChild(videoEl);
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            videoEl.srcObject = stream; await videoEl.play();
+            const loop = () => {
+              if (videoEl && !videoEl.paused && !videoEl.ended) {
+                streamCtx.drawImage(videoEl, 0, 0, streamCanvas.width, streamCanvas.height);
+              }
+              requestAnimationFrame(loop);
+            };
+            loop();
+            initLocalMl5();
+            document.getElementById('openCamBtn').disabled = true; document.getElementById('openCamBtn').textContent = 'Camera Open';
+          } catch (e) {
+            document.getElementById('localResult').textContent = 'Camera denied';
+          }
+        }
+      });
+
+      document.getElementById('addLocalBtn').addEventListener('click', () => {
+        const lbl = (document.getElementById('tmplLabel').value || '').trim();
+        if (!lbl) { document.getElementById('localResult').textContent = 'Enter a label'; return; }
+        if (!featureExtractor) initLocalMl5();
+        if (!modelReady && !classifier) { document.getElementById('localResult').textContent = 'Initializing model...'; return; }
+        classifier.addImage(streamCanvas, lbl, () => { document.getElementById('localResult').textContent = 'Added example: ' + lbl; });
+      });
+
+      document.getElementById('trainLocalBtn').addEventListener('click', () => {
+        if (!classifier) { document.getElementById('localResult').textContent = 'Model not ready'; return; }
+        document.getElementById('localResult').textContent = 'Training...';
+        classifier.train((loss) => { if (loss === null) document.getElementById('localResult').textContent = 'Training complete'; else document.getElementById('localResult').textContent = 'Loss: ' + loss.toFixed(4); });
+      });
+
+      document.getElementById('classifyLocalBtn').addEventListener('click', () => {
+        if (!classifier) { document.getElementById('localResult').textContent = 'Model not ready'; return; }
+        document.getElementById('localResult').textContent = 'Classifying...';
+        classifier.classify(streamCanvas, (err, results) => {
+          if (err) { document.getElementById('localResult').textContent = 'Error'; return; }
+          if (results && results[0]) {
+            const r = results[0];
+            document.getElementById('localResult').textContent = `${r.label} (${Math.round(r.confidence*100)}%)`;
+            // overlay
+            streamCtx.fillStyle = 'rgba(0,0,0,0.6)'; streamCtx.fillRect(0, streamCanvas.height - 36, streamCanvas.width, 36);
+            streamCtx.fillStyle = '#9ef'; streamCtx.font = '18px Arial'; streamCtx.textBaseline = 'middle'; streamCtx.fillText(`${r.label} (${Math.round(r.confidence*100)}%)`, 12, streamCanvas.height - 18);
+          } else document.getElementById('localResult').textContent = 'No result';
+        });
+      });
     </script>
     <p>Press Ctrl+C in the server terminal to stop.</p>
   </body>
