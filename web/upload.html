@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Realtime Object Identifier - Upload</title>
+    <style>
+      body { font-family: Arial, sans-serif; background:#222; color:#ddd; display:flex; flex-direction:column; align-items:center; }
+      h1 { color: #ffd700; margin-top:18px }
+      .container { width: 820px; max-width:95%; }
+      .panel { margin-top: 12px; background:#111; padding:12px; border-radius:6px; width:100% }
+      .preview-box { width: 520px; height:340px; background:#000; border:2px solid #333; position:relative; overflow:hidden }
+      .preview-box canvas { width:100%; height:100%; display:block }
+      .controls { margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+      .badge { background:rgba(0,0,0,0.6); color:#9ef; padding:6px 10px; border-radius:6px; font-weight:600 }
+      button, input[type="file"], input[type="text"] { background:#fff1; color:#fff; border:1px solid #555; padding:6px 8px; border-radius:4px }
+      a.link { color:#9ef; text-decoration:none; margin-left:8px }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Upload Image - Scene Classifier</h1>
+      <div class="panel">
+        <div style="display:flex;gap:12px;align-items:flex-start;">
+          <div class="preview-box"><canvas id="uploadCanvas" width="520" height="340"></canvas></div>
+          <div style="flex:1">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <input type="file" id="uploadFile" accept="image/*" />
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button id="uploadBtn">Upload Image</button>
+              <span id="uploadResult" class="badge"></span>
+            </div>
+            <p style="margin-top:10px;color:#999">Use this page to upload photos and save templates. Live stream is separate: <a class="link" href="/">Go to Live Stream</a></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const uploadFile = document.getElementById('uploadFile');
+      const uploadCanvas = document.getElementById('uploadCanvas');
+      const uploadCtx = uploadCanvas.getContext('2d');
+      const uploadBtn = document.getElementById('uploadBtn');
+      const uploadResult = document.getElementById('uploadResult');
+
+      let currentImage = null;
+
+      function clearCanvas() {
+        uploadCtx.fillStyle = '#000';
+        uploadCtx.fillRect(0, 0, uploadCanvas.width, uploadCanvas.height);
+      }
+
+      function drawImageToCanvas(img) {
+        // fit image into canvas while preserving aspect
+        const cw = uploadCanvas.width, ch = uploadCanvas.height;
+        const iw = img.width, ih = img.height;
+        const scale = Math.min(cw / iw, ch / ih);
+        const nw = iw * scale, nh = ih * scale;
+        const ox = (cw - nw) / 2, oy = (ch - nh) / 2;
+        uploadCtx.clearRect(0,0,cw,ch);
+        uploadCtx.drawImage(img, 0, 0, iw, ih, ox, oy, nw, nh);
+      }
+
+      uploadFile.addEventListener('change', () => {
+        const f = uploadFile.files && uploadFile.files[0];
+        if (!f) { clearCanvas(); return; }
+        const url = URL.createObjectURL(f);
+        const img = new Image();
+        img.onload = () => {
+          currentImage = img;
+          drawImageToCanvas(img);
+          uploadResult.textContent = '';
+        };
+        img.src = url;
+      });
+
+      uploadBtn.addEventListener('click', async () => {
+        if (!uploadFile.files || uploadFile.files.length === 0) { uploadResult.textContent = 'Select a file'; return; }
+        uploadBtn.disabled = true; uploadResult.textContent = 'Uploading...';
+        const fd = new FormData(); fd.append('image', uploadFile.files[0]);
+        try {
+          const r = await fetch('/upload_image', { method: 'POST', body: fd });
+          const j = await r.json();
+          if (j.label) {
+            uploadResult.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
+            // overlay label on canvas
+            if (currentImage) {
+              drawImageToCanvas(currentImage);
+              // draw translucent bar
+              uploadCtx.fillStyle = 'rgba(0,0,0,0.6)';
+              uploadCtx.fillRect(0, uploadCanvas.height - 36, uploadCanvas.width, 36);
+              uploadCtx.fillStyle = '#9ef';
+              uploadCtx.font = '18px Arial';
+              uploadCtx.textBaseline = 'middle';
+              uploadCtx.fillText(j.label + ' (' + Math.round(j.score*100) + '%)', 12, uploadCanvas.height - 18);
+            }
+          } else {
+            uploadResult.textContent = JSON.stringify(j);
+          }
+        } catch (e) {
+          uploadResult.textContent = 'Error';
+        }
+        uploadBtn.disabled = false;
+      });
+    </script>
+  </body>
+</html>

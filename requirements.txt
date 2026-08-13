@@ -1,0 +1,6 @@
+opencv-python>=4.5
+numpy
+requests
+Flask>=2.0
+ultralytics
+transformers
