@@ -65,10 +65,21 @@
         resSpan.textContent = 'Classifying...';
         try {
           const r = await fetch(API_BASE + '/classify_scene', { method: 'POST' });
-          const j = await r.json();
-          resSpan.textContent = j.label + ' (' + Math.round(j.score*100) + '%)';
+          const text = await r.text();
+          try {
+            const j = JSON.parse(text);
+            if (!r.ok) {
+              resSpan.textContent = `Server error: ${j.error || j.message || text}`;
+            } else if (j.label) {
+              resSpan.textContent = j.label + ' (' + Math.round((j.score||0)*100) + '%)';
+            } else {
+              resSpan.textContent = JSON.stringify(j);
+            }
+          } catch (pe) {
+            resSpan.textContent = `Bad JSON response: ${r.status} ${text}`;
+          }
         } catch (e) {
-          resSpan.textContent = 'Error';
+          resSpan.textContent = 'Network error: ' + e.message;
         }
         classifyBtn.disabled = false;
       });

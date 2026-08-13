@@ -39,6 +39,20 @@ frame_lock = threading.Lock()
 
 app = Flask(__name__)
 
+# Try to enable CORS for the frontend calls. Prefer flask_cors if available,
+# otherwise add a permissive header in after_request.
+try:
+    from flask_cors import CORS
+    CORS(app)
+    print('Enabled CORS via flask_cors')
+except Exception:
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+        return response
+
 # CLIP preload globals (loaded in background to avoid blocking first requests)
 CLIP_MODEL = None
 CLIP_PROCESSOR = None
@@ -185,8 +199,13 @@ def classify_image(img, labels=None):
 
 @app.route('/classify_scene', methods=['POST'])
 def classify_scene():
-    img = capture_current_frame()
-    return jsonify(classify_image(img))
+    try:
+        img = capture_current_frame()
+        result = classify_image(img)
+        return jsonify(result)
+    except Exception as e:
+        print('Error in /classify_scene:', e)
+        return jsonify({'error': 'server_error', 'message': str(e)}), 500
 
 
 @app.route('/upload_image', methods=['POST'])
